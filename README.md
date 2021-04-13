@@ -1,2 +1,2 @@
 # CancianiGraziani_Gally_Dataspace
-For each .ipynb file, to be opened by "Jupyter Notebook", there is a .md copy to be visualized directly.
+For each .md file there is the original .ipynb file in the "IPYNB" folder.
