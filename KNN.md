@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 
 from imblearn.over_sampling import SMOTE
 ```
@@ -12,7 +12,7 @@ from imblearn.over_sampling import SMOTE
 
 ```python
 df = pd.read_csv("wine.csv", delimiter=";")
-display(df)
+#display(df)
 del df["ash"]
 #Norm
 
@@ -22,84 +22,131 @@ for col in numeric:
     max = df[col].max()
     df[col] = (2*(df[col] - min) / (max - min)) -1
     
-display(df)
-```
+#display(df)
 
-
-```python
 X = df.loc[:, df.columns != "class"]
 y = df["class"]
 
-grid_params = {
-    'n_neighbors': [3,5,11,19],
-    'weights': ['uniform','distance'],
-    'metric':['euclidean','manhattan']
-}
-
-gs = GridSearchCV(
-    KNeighborsClassifier(),
-    grid_params,
-)
-
-gs.fit(X,y)
-model = gs.best_estimator_
-print(model.get_params())
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.3)
 ```
 
 
 ```python
-kf = StratifiedKFold(n_splits=5)
-acc = []
-prec =[]
-rec = []
-f1 = []
-for fold, (train_index, test_index) in enumerate(kf.split(X, y), 1):  
-    y_train = y[train_index]  
-    X_train = X.iloc[train_index]
-    X_test = X.iloc[test_index]
-    y_test = y[test_index]  
-    model.fit(X_train, y_train )  
-    y_pred = model.predict(X_test)
-   
-    acc.append(model.score(X_test, y_test))
-    prec.append(precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    rec.append(recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    f1.append(f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+n_neighbors = [3,5,11,19]
+weights = ['uniform','distance']
+metric = ['euclidean','manhattan']
     
-print("Average scores for 5 fold CV - Without SMOTE")
-print("Accuracy: " + str(np.mean(acc).round(3)))
-print("Weighted Precision: " + str(np.mean(prec).round(3)))
-print("Weighted Recall:    " + str(np.mean(rec).round(3)))
-print("Weighted F1-Score:  " + str(np.mean(f1).round(3)))
-```
-
-
-```python
-kf = StratifiedKFold(n_splits=5)
-acc = []
-prec =[]
-rec = []
-f1 = []
-for fold, (train_index, test_index) in enumerate(kf.split(X, y), 1):  
-    y_train = y[train_index]  
-    X_train = X.iloc[train_index]
-    X_test = X.iloc[test_index]
-    y_test = y[test_index]  
+scores_smote = pd.DataFrame({'n': [], 'w': [], 'm': [], 'accuracy': []})
+for n in n_neighbors:
+    for w in weights:
+        for m in metric:
+            acc = []
+            clf = KNeighborsClassifier(n_neighbors = n, weights = w, metric = m)
+            kf = StratifiedKFold(n_splits=5)
+            for fold, (train_index, val_index) in enumerate(kf.split(X_train, y_train), 1):  
+                y_train_fold = y_train.iloc[train_index]  
+                X_train_fold = X_train.iloc[train_index]
+                X_val_fold = X_train.iloc[val_index]
+                y_val_fold = y_train.iloc[val_index]  
     
-    sm = SMOTE()
-    X_train_oversampled, y_train_oversampled = sm.fit_resample(X_train, y_train)
+                sm = SMOTE()
+                X_train_fold_oversampled, y_train_fold_oversampled = sm.fit_resample(X_train_fold, y_train_fold)
   
-    model.fit(X_train_oversampled, y_train_oversampled )  
-    y_pred = model.predict(X_test)
-   
-    acc.append(model.score(X_test, y_test))
-    prec.append(precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    rec.append(recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    f1.append(f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    
-print("Average scores for 5 fold CV - With SMOTE")
-print("Accuracy: " + str(np.mean(acc).round(3)))
-print("Weighted Precision: " + str(np.mean(prec).round(3)))
-print("Weighted Recall:    " + str(np.mean(rec).round(3)))
-print("Weighted F1-Score:  " + str(np.mean(f1).round(3)))
+                clf.fit(X_train_fold_oversampled, y_train_fold_oversampled )  
+                y_pred_fold = clf.predict(X_val_fold)
+                acc.append(accuracy_score(y_val_fold, y_pred_fold))
+            scores_smote = scores_smote.append(pd.Series({'n': n, 'w': w, 'm' : m, 'accuracy': np.mean(acc)}), ignore_index = True)
+best_config = scores_smote.iloc[scores_smote['accuracy'].idxmax()]
+print(f"Best configuration WITH SMOTE:\n{best_config}")
+best_n = best_config['n']
+best_w = best_config['w']
+best_m = best_config['m']
 ```
+
+    Best configuration WITH SMOTE:
+    n                 3.0
+    w            distance
+    m           euclidean
+    accuracy     0.959667
+    Name: 2, dtype: object
+    
+
+
+```python
+best_clf = KNeighborsClassifier(n_neighbors = int(best_n), weights = best_w, metric = best_m)
+
+sm = SMOTE()
+X_train_oversampled, y_train_oversampled = sm.fit_resample(X_train, y_train)
+best_clf.fit(X_train_oversampled, y_train_oversampled)
+
+y_pred = best_clf.predict(X_test)
+print("KNN EVALUATION WITH SMOTE")
+print("Accuracy %f"%accuracy_score(y_test, y_pred))
+print("Precision %f"%precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("Recall %f"%recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("F1-Score %f"%f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+```
+
+    KNN EVALUATION WITH SMOTE
+    Accuracy 0.981481
+    Precision 0.982253
+    Recall 0.981481
+    F1-Score 0.981359
+    
+
+
+```python
+n_neighbors = [3,5,11,19]
+weights = ['uniform','distance']
+metric = ['euclidean','manhattan']
+    
+scores = pd.DataFrame({'n': [], 'w': [], 'm': []})
+for n in n_neighbors:
+    for w in weights:
+        for m in metric:
+            acc = []
+            clf = KNeighborsClassifier(n_neighbors = n, weights = w, metric = m)
+            kf = StratifiedKFold(n_splits=5)
+            for fold, (train_index, val_index) in enumerate(kf.split(X_train, y_train), 1):  
+                y_train_fold = y_train.iloc[train_index]  
+                X_train_fold = X_train.iloc[train_index]
+                X_val_fold = X_train.iloc[val_index]
+                y_val_fold = y_train.iloc[val_index]  
+    
+                clf.fit(X_train_fold, y_train_fold )  
+                y_pred_fold = clf.predict(X_val_fold)
+                acc.append(accuracy_score(y_val_fold, y_pred_fold))
+            scores = scores.append(pd.Series({'n': n, 'w': w, 'm' : m, 'accuracy': np.mean(acc)}), ignore_index = True)
+best_config = scores.iloc[scores['accuracy'].idxmax()]
+print(f"Best configuration WITHOUT SMOTE:\n{best_config}")
+best_n = best_config['n']
+best_w = best_config['w']
+best_m = best_config['m']
+```
+
+    Best configuration WITHOUT SMOTE:
+    n                11.0
+    w             uniform
+    m           manhattan
+    accuracy         0.96
+    Name: 9, dtype: object
+    
+
+
+```python
+best_clf = KNeighborsClassifier(n_neighbors = int(best_n), weights = best_w, metric = best_m)
+best_clf.fit(X_train, y_train)
+y_pred = best_clf.predict(X_test)
+print("KNN EVALUATION WITHOUT SMOTE")
+print("Accuracy %f"%accuracy_score(y_test, y_pred))
+print("Precision %f"%precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("Recall %f"%recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("F1-Score %f"%f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+```
+
+    KNN EVALUATION WITHOUT SMOTE
+    Accuracy 0.981481
+    Precision 0.982571
+    Recall 0.981481
+    F1-Score 0.981443
+    

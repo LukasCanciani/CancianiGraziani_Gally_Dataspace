@@ -3,12 +3,12 @@ import numpy as np
 import pandas as pd
 
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.model_selection import  StratifiedKFold, GridSearchCV
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.model_selection import  StratifiedKFold,train_test_split
+from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 
 from imblearn.over_sampling import SMOTE
 
-#print tree
+#Three print
 from sklearn.tree import export_graphviz
 from six import StringIO  
 from IPython.display import Image  
@@ -19,111 +19,173 @@ import pydotplus
 ```python
 df = pd.read_csv("wine.csv", delimiter=";")
 del df['ash']
-display(df)
-print(f"the column where at least a column is null are: {sum(df.isnull().sum())}")
-print(f"the shape of the dataset is the following: {df.shape}")
-count = df.isnull().sum()
-print("\nMissing values per column")
-print(count.to_string())
-```
-
-
-```python
 X = df.loc[:, df.columns != "class"]
 y = df["class"]
-classes = np.unique(y)
-for c in classes: 
-    total = len(y[y==c])
-    ratio = (total / float(len(y))) * 100
-    print("Class %s : %d (%.3f%%)" % (str(c), total, ratio))
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.3)
 ```
 
 
 ```python
-grid_params = {
-    'criterion':('gini','entropy'), 
-'min_samples_split':[2,3,4,5,6,7,8],
-'max_depth':[1,2,3,4,5,6,10,15,20], 
-'class_weight':('balanced', None)
-}
+criterion=['gini','entropy'] 
+min_samples_split = [2,3,4,5,6,7,8]
+max_depth = [1,2,3,4,5,6,10,15,20] 
+class_weight=['balanced', None]
 
-gs = GridSearchCV(
-    DecisionTreeClassifier(),
-    grid_params,
-)
+scores_smote = pd.DataFrame({'c': [], 'min': [], 'max': [], 'cl':[], 'accuracy': []})
 
-gs.fit(X,y)
-model = gs.best_estimator_
+for c in criterion:
+    for mi in min_samples_split :
+        for ma in max_depth:
+            for cl in class_weight:
+                acc = []
+                clf = DecisionTreeClassifier(criterion = c, min_samples_split=mi, max_depth=ma,class_weight=cl)
+                kf = StratifiedKFold(n_splits=5)
+                for fold, (train_index, val_index) in enumerate(kf.split(X_train, y_train), 1):  
+                    y_train_fold = y_train.iloc[train_index]  
+                    X_train_fold = X_train.iloc[train_index]
+                    X_val_fold = X_train.iloc[val_index]
+                    y_val_fold = y_train.iloc[val_index]  
 
-print(model.get_params())
+                    sm = SMOTE()
+                    X_train_fold_oversampled, y_train_fold_oversampled = sm.fit_resample(X_train_fold, y_train_fold)
+
+                    clf.fit(X_train_fold_oversampled, y_train_fold_oversampled )  
+                    y_pred_fold = clf.predict(X_val_fold)
+                    acc.append(accuracy_score(y_val_fold, y_pred_fold))
+                scores_smote = scores_smote.append(pd.Series({'c': c, 'min': mi, 'max' : ma, 'cl':cl, 'accuracy': np.mean(acc)}), ignore_index = True)
+
+best_config = scores_smote.iloc[scores_smote['accuracy'].idxmax()]
+print(f"Best configuration WITH SMOTE:\n{best_config}")
+best_c = best_config['c']
+best_mi = best_config['min']
+best_ma = best_config['max']
+best_cl = best_config['cl']
 ```
 
-
-```python
-kf = StratifiedKFold(n_splits=5)
-acc = []
-prec =[]
-rec = []
-f1 = []
-for fold, (train_index, test_index) in enumerate(kf.split(X, y), 1):  
-    y_train = y[train_index]  
-    X_train = X.iloc[train_index]
-    X_test = X.iloc[test_index]
-    y_test = y[test_index]  
-    model.fit(X_train, y_train )  
-    y_pred = model.predict(X_test)
-   
-    acc.append(model.score(X_test, y_test))
-    prec.append(precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    rec.append(recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    f1.append(f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+    Best configuration WITH SMOTE:
+    c            gini
+    min           5.0
+    max          20.0
+    cl           None
+    accuracy    0.959
+    Name: 71, dtype: object
     
-print("Average scores for 5 fold CV - Without SMOTE")
-print("Accuracy: " + str(np.mean(acc).round(3)))
-print("Weighted Precision: " + str(np.mean(prec).round(3)))
-print("Weighted Recall:    " + str(np.mean(rec).round(3)))
-print("Weighted F1-Score:  " + str(np.mean(f1).round(3)))
 
+
+```python
+best_clf = DecisionTreeClassifier(criterion = best_c, min_samples_split=int(best_mi), max_depth=int(best_ma), class_weight=best_cl)
+
+sm = SMOTE()
+X_train_oversampled, y_train_oversampled = sm.fit_resample(X_train, y_train)
+best_clf.fit(X_train_oversampled, y_train_oversampled)
+
+y_pred = best_clf.predict(X_test)
+print("DECISION TREE EVALUATION WITH SMOTE")
+print("Accuracy %f"%accuracy_score(y_test, y_pred))
+print("Precision %f"%precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("Recall %f"%recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("F1-Score %f"%f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+    
 dot_data=StringIO()
-export_graphviz(model, out_file=dot_data, filled=True, rounded=True, special_characters = True, feature_names =X_train.columns.values.tolist())
+export_graphviz(best_clf, out_file=dot_data, filled=True, rounded=True, special_characters = True, feature_names =X_train.columns.values.tolist())
+
+graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
+graph.write_png("wineDTC_sm.png")
+Image(graph.create_png())
+```
+
+    DECISION TREE EVALUATION WITH SMOTE
+    Accuracy 0.944444
+    Precision 0.946296
+    Recall 0.944444
+    F1-Score 0.944754
+    
+
+
+
+
+    
+![png](images/output_3_1.png)
+    
+
+
+
+
+```python
+criterion=['gini','entropy'] 
+min_samples_split = [2,3,4,5,6,7,8]
+max_depth = [1,2,3,4,5,6,10,15,20] 
+class_weight=['balanced', None]
+
+scores = pd.DataFrame({'c': [], 'min': [], 'max': [], 'cl':[], 'accuracy': []})
+
+for c in criterion:
+    for mi in min_samples_split :
+        for ma in max_depth:
+            for cl in class_weight:
+                acc = []
+                clf = DecisionTreeClassifier(criterion = c, min_samples_split=mi, max_depth=ma,class_weight=cl)
+                kf = StratifiedKFold(n_splits=5)
+                for fold, (train_index, val_index) in enumerate(kf.split(X_train, y_train), 1):  
+                    y_train_fold = y_train.iloc[train_index]  
+                    X_train_fold = X_train.iloc[train_index]
+                    X_val_fold = X_train.iloc[val_index]
+                    y_val_fold = y_train.iloc[val_index]  
+
+                    clf.fit(X_train_fold, y_train_fold)  
+                    y_pred_fold = clf.predict(X_val_fold)
+                    acc.append(accuracy_score(y_val_fold, y_pred_fold))
+                scores = scores.append(pd.Series({'c': c, 'min': mi, 'max' : ma, 'cl':cl, 'accuracy': np.mean(acc)}), ignore_index = True)
+
+best_config = scores.iloc[scores['accuracy'].idxmax()]
+print(f"Best configuration WITHOUT SMOTE:\n{best_config}")
+best_c = best_config['c']
+best_mi = best_config['min']
+best_ma = best_config['max']
+best_cl = best_config['cl']
+```
+
+    Best configuration WITHOUT SMOTE:
+    c               gini
+    min              4.0
+    max             15.0
+    cl              None
+    accuracy    0.951667
+    Name: 51, dtype: object
+    
+
+
+```python
+best_clf = DecisionTreeClassifier(criterion = best_c, min_samples_split=int(best_mi), max_depth=int(best_ma), class_weight=best_cl)
+best_clf.fit(X_train, y_train)
+
+y_pred = best_clf.predict(X_test)
+print("DECISION TREE EVALUATION WITHOUT SMOTE")
+print("Accuracy %f"%accuracy_score(y_test, y_pred))
+print("Precision %f"%precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("Recall %f"%recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+print("F1-Score %f"%f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+    
+dot_data=StringIO()
+export_graphviz(best_clf, out_file=dot_data, filled=True, rounded=True, special_characters = True, feature_names =X_train.columns.values.tolist())
 
 graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
 graph.write_png("wineDTC.png")
 Image(graph.create_png())
 ```
 
-
-```python
-kf = StratifiedKFold(n_splits=5)
-acc = []
-prec =[]
-rec = []
-f1 = []
-for fold, (train_index, test_index) in enumerate(kf.split(X, y), 1):  
-    y_train = y[train_index]  
-    X_train = X.iloc[train_index]
-    X_test = X.iloc[test_index]
-    y_test = y[test_index]  
+    DECISION TREE EVALUATION WITHOUT SMOTE
+    Accuracy 0.944444
+    Precision 0.944840
+    Recall 0.944444
+    F1-Score 0.944064
     
-    sm = SMOTE()
-    X_train_oversampled, y_train_oversampled = sm.fit_resample(X_train, y_train)
-  
-    model.fit(X_train_oversampled, y_train_oversampled )  
-    y_pred = model.predict(X_test)
-   
-    acc.append(model.score(X_test, y_test))
-    prec.append(precision_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    rec.append(recall_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
-    f1.append(f1_score(y_test, y_pred,average="weighted",labels=np.unique(y_pred)))
+
+
+
+
     
-print("Average scores for 5 fold CV - With SMOTE")
-print("Accuracy: " + str(np.mean(acc).round(3)))
-print("Weighted Precision: " + str(np.mean(prec).round(3)))
-print("Weighted Recall:    " + str(np.mean(rec).round(3)))
-print("Weighted F1-Score:  " + str(np.mean(f1).round(3)))
-```
+![png](images/output_5_1.png)
+    
 
 
-```python
-
-```
