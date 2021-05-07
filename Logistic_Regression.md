@@ -49,9 +49,9 @@ best_c = best_config['c']
 best_s = best_config['s']
 ```
 
-   ...
+  
+    ...
     
-
     Best configuration WITH SMOTE:
     c                 1.0
     s           newton-cg
@@ -113,8 +113,9 @@ best_c = best_config['c']
 best_s = best_config['s']
 ```
 
-   ...
-
+   
+    ...
+    
     Best configuration WITHOUT SMOTE:
     c                 1.0
     s           newton-cg
